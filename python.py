@@ -50,17 +50,15 @@ PERIOD_OPTIONS = {
     'year': 'Theo Năm',
     'quarter': 'Theo Quý'
 }
-SOURCE_DEFAULT = 'TCBS'
-
 
 # --- HÀM TẢI DỮ LIỆU TÀI CHÍNH TỪ VNSTOCK ---
 @st.cache_data(show_spinner="Đang trích xuất dữ liệu Báo cáo Tài chính...")
-def get_financial_data(symbol, period='year', source=SOURCE_DEFAULT):
+def get_financial_data(symbol, period='year', source='TCBS'):
     """
     Tải Bảng Cân đối Kế toán, Báo cáo KQKD, và Báo cáo Lưu chuyển Tiền tệ
     cho một mã cổ phiếu sử dụng Vnstock.
     """
-    st.info(f"Đang tải dữ liệu tài chính cho mã **{symbol}** (Nguồn: VCI, Kỳ: {period})...")
+    st.info(f"Đang tải dữ liệu tài chính cho mã **{symbol}** (Nguồn: {source}, Kỳ: {period})...")
     financial_data = {}
     
     try:
@@ -70,12 +68,12 @@ def get_financial_data(symbol, period='year', source=SOURCE_DEFAULT):
         financial_data['income_statement'] = stock_api.finance.income_statement(period=period)
         financial_data['cash_flow'] = stock_api.finance.cash_flow(period=period)
 
-        st.success(f"Tải dữ liệu thành công cho **{symbol}**.")
+        st.success(f"Tải dữ liệu thành công cho **{symbol}** (Nguồn: {source}).")
         return financial_data
         
     except Exception as e:
         st.error(f"Lỗi khi tải dữ liệu cho **{symbol}**: {e}")
-        st.warning("Vui lòng kiểm tra lại mã cổ phiếu và đảm bảo API nguồn dữ liệu đang hoạt động.")
+        st.warning(f"Vui lòng kiểm tra lại mã cổ phiếu và đảm bảo API nguồn dữ liệu '{source}' đang hoạt động.")
         return None
 
 # --- HÀM HỖ TRỢ TẠO FILE EXCEL ---
@@ -207,6 +205,18 @@ period = st.sidebar.radio(
     index=0
 )
 
+# --- THÊM TÙY CHỌN NGUỒN DỮ LIỆU ---
+source_option = st.sidebar.selectbox(
+    "Chọn Nguồn Dữ Liệu:",
+    options=["TCBS", "VCI", "MSN", "Tự nhập"]
+)
+
+if source_option == "Tự nhập":
+    selected_source = st.sidebar.text_input("Nhập tên nguồn dữ liệu (ví dụ: SSI, VND):").strip()
+else:
+    selected_source = source_option
+
+
 # Thêm Khóa API cho AI
 st.sidebar.header("Cấu hình AI (Tùy chọn)")
 api_key = st.sidebar.text_input("Nhập GEMINI_API_KEY", type="password")
@@ -215,7 +225,11 @@ st.sidebar.caption("Sử dụng Khóa API của bạn để kích hoạt Phân t
 
 if symbol:
     
-    financial_data = get_financial_data(symbol, period=period, source=SOURCE_DEFAULT)
+    if not selected_source:
+        st.warning("Vui lòng nhập nguồn dữ liệu hợp lệ trước khi tiếp tục.")
+        st.stop()
+        
+    financial_data = get_financial_data(symbol, period=period, source=selected_source)
 
     if financial_data:
         
