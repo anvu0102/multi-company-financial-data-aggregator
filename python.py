@@ -22,7 +22,6 @@ except ImportError:
     st.stop()
 
 # --- SỬA LỖI ATTRIBUTEERROR ---
-# Thay đổi cách import SettingWithCopyWarning để tương thích với Pandas mới
 try:
     from pandas.errors import SettingWithCopyWarning
     warnings.filterwarnings('ignore', category=SettingWithCopyWarning)
@@ -99,10 +98,12 @@ def calculate_descriptive_stats(df, report_name):
     # Tìm cột thời gian linh hoạt
     time_col = 'id'
     if 'id' not in df_temp.columns:
-        if 'ReportDate' in df_temp.columns:
-            time_col = 'ReportDate'
+        if 'period' in df_temp.columns:
+            time_col = 'period'
         elif 'Period' in df_temp.columns:
             time_col = 'Period'
+        elif 'ReportDate' in df_temp.columns:
+            time_col = 'ReportDate'
         else:
             time_col = df_temp.columns[0] # Dự phòng
 
@@ -253,8 +254,9 @@ if symbol:
                     if df.index.names is not None and len(df.index.names) > 0:
                         df = df.reset_index(drop=False)
                         
-                    # Sắp xếp hiển thị
-                    sort_col = 'id' if 'id' in df.columns else ('ReportDate' if 'ReportDate' in df.columns else df.columns[0])
+                    # Sắp xếp hiển thị một cách linh hoạt
+                    possible_time_cols = ['id', 'period', 'Period', 'ReportDate', df.columns[0]]
+                    sort_col = next((col for col in possible_time_cols if col in df.columns), df.columns[0])
                     
                     df_display = df.sort_values(by=sort_col, ascending=False).reset_index(drop=True)
 
@@ -306,8 +308,13 @@ if symbol:
                 chart_cols = [col for col in default_metrics if col in numeric_cols]
                 chart_cols.extend([col for col in numeric_cols if col not in chart_cols])
                 
-                # Sửa lỗi: Tìm cột thời gian linh hoạt
-                time_col_for_chart = 'period'
+                # Sửa lỗi: Tìm cột thời gian linh hoạt thay vì gán cứng
+                possible_chart_time_cols = ['period', 'Period', 'id', 'ReportDate', 'year', 'quarter']
+                time_col_for_chart = next((col for col in possible_chart_time_cols if col in df_income.columns), None)
+                
+                # Nếu không tìm thấy các tên phổ biến, lấy cột đầu tiên (không phải cột số) làm dự phòng
+                if not time_col_for_chart and len(df_income.columns) > 0:
+                    time_col_for_chart = df_income.columns[0]
 
                 if chart_cols and time_col_for_chart:
                     selected_metric = st.selectbox(
