@@ -52,7 +52,7 @@ PERIOD_OPTIONS = {
 
 # --- HÀM TẢI DỮ LIỆU TÀI CHÍNH TỪ VNSTOCK ---
 @st.cache_data(show_spinner="Đang trích xuất dữ liệu Báo cáo Tài chính...")
-def get_financial_data(symbol, period='year', source='TCBS'):
+def get_financial_data(symbol, period='year', source='VCI'):
     """
     Tải Bảng Cân đối Kế toán, Báo cáo KQKD, và Báo cáo Lưu chuyển Tiền tệ
     cho một mã cổ phiếu sử dụng Vnstock.
@@ -63,9 +63,19 @@ def get_financial_data(symbol, period='year', source='TCBS'):
     try:
         stock_api = Vnstock().stock(symbol=symbol, source=source)
         
-        financial_data['balance_sheet'] = stock_api.finance.balance_sheet(period=period)
-        financial_data['income_statement'] = stock_api.finance.income_statement(period=period)
-        financial_data['cash_flow'] = stock_api.finance.cash_flow(period=period)
+        # Tải dữ liệu
+        bs = stock_api.finance.balance_sheet(period=period)
+        is_ = stock_api.finance.income_statement(period=period)
+        cf = stock_api.finance.cash_flow(period=period)
+        
+        # Xử lý lỗi trùng cột từ API (Giữ lại cột xuất hiện đầu tiên, bỏ các cột bị lặp tên)
+        if bs is not None and not bs.empty: bs = bs.loc[:, ~bs.columns.duplicated()]
+        if is_ is not None and not is_.empty: is_ = is_.loc[:, ~is_.columns.duplicated()]
+        if cf is not None and not cf.empty: cf = cf.loc[:, ~cf.columns.duplicated()]
+
+        financial_data['balance_sheet'] = bs
+        financial_data['income_statement'] = is_
+        financial_data['cash_flow'] = cf
 
         st.success(f"Tải dữ liệu thành công cho **{symbol}** (Nguồn: {source}).")
         return financial_data
@@ -90,22 +100,20 @@ def calculate_descriptive_stats(df, report_name):
     stats_list = []
     
     df_temp = df.copy()
-    if df_temp.index.names is not None and len(df_temp.index.names) > 0:
-        df_temp = df_temp.reset_index(drop=False)
+    if df_temp.index.names is not None and len(df_temp.index.names) > 0 and df_temp.index.names[0] is not None:
+        try:
+            df_temp = df_temp.reset_index(drop=False)
+        except ValueError:
+            pass # Bỏ qua nếu việc reset index gây ra trùng lặp tên cột
+
+    # Đảm bảo không có cột trùng tên
+    df_temp = df_temp.loc[:, ~df_temp.columns.duplicated()]
 
     numeric_cols = [col for col in df_temp.columns if is_numeric_dtype(df_temp[col])]
     
     # Tìm cột thời gian linh hoạt
-    time_col = 'id'
-    if 'id' not in df_temp.columns:
-        if 'period' in df_temp.columns:
-            time_col = 'period'
-        elif 'Period' in df_temp.columns:
-            time_col = 'Period'
-        elif 'ReportDate' in df_temp.columns:
-            time_col = 'ReportDate'
-        else:
-            time_col = df_temp.columns[0] # Dự phòng
+    possible_time_cols = ['id', 'period', 'Period', 'ReportDate', 'year', 'quarter']
+    time_col = next((col for col in possible_time_cols if col in df_temp.columns), df_temp.columns[0])
 
     for col in numeric_cols:
         series = df_temp[col].dropna()
@@ -170,7 +178,7 @@ def get_ai_analysis(stats_df_income, stats_df_balance, symbol, period, api_key):
         
         Dựa trên hai bảng thống kê trên, hãy viết một báo cáo phân tích tổng hợp (khoảng 4-6 đoạn) bằng tiếng Việt.
         1.  **Đánh giá Tăng trưởng & Ổn định Doanh thu/Lợi nhuận:** Phân tích Trung bình, Tối đa/Tối thiểu, và đặc biệt là **Hệ số biến thiên (CV)** của Doanh thu/Lợi nhuận. CV cao cho thấy sự bất ổn trong hoạt động kinh doanh.
-        2.  **Đánh giá Cấu trúc Tài sản & Nợ:** Phân tích xu hướng Tổng tài sản, Nợ phải trả và Vốn chủ sở hữu. Nhận xét về rủi ro tài chính (tỷ trọng nợ).
+        2.  **Đánh giá Cấu trúc Tài sản & Nợ:** Phân tích xu hướng Tổng tài sản, Nợ phải trả và Vốn chủ sở hữu. Nhận xét về rủi cấu tài chính (tỷ trọng nợ).
         3.  **Nhận xét Khác:** Tổng hợp các điểm mạnh, điểm yếu nổi bật trong giai đoạn phân tích.
         
         Hãy trình bày báo cáo một cách chuyên nghiệp, dễ đọc và tập trung vào các con số quan trọng.
@@ -206,10 +214,11 @@ period = st.sidebar.radio(
     index=0
 )
 
-# --- THÊM TÙY CHỌN NGUỒN DỮ LIỆU ---
+# --- TÙY CHỌN NGUỒN DỮ LIỆU (MẶC ĐỊNH VCI) ---
 source_option = st.sidebar.selectbox(
     "Chọn Nguồn Dữ Liệu:",
-    options=["TCBS", "VCI", "MSN", "Tự nhập"]
+    options=["VCI", "TCBS", "MSN", "Tự nhập"],
+    index=0
 )
 
 if source_option == "Tự nhập":
@@ -251,11 +260,17 @@ if symbol:
                 df = financial_data[key].copy() 
                 
                 if df is not None and not df.empty:
-                    if df.index.names is not None and len(df.index.names) > 0:
-                        df = df.reset_index(drop=False)
+                    if df.index.names is not None and len(df.index.names) > 0 and df.index.names[0] is not None:
+                        try:
+                            df = df.reset_index(drop=False)
+                        except ValueError:
+                            pass
+                            
+                    # Xử lý lỗi trùng lặp cột khi reset index
+                    df = df.loc[:, ~df.columns.duplicated()]
                         
                     # Sắp xếp hiển thị một cách linh hoạt
-                    possible_time_cols = ['id', 'period', 'Period', 'ReportDate', df.columns[0]]
+                    possible_time_cols = ['id', 'period', 'Period', 'ReportDate', 'year', 'quarter']
                     sort_col = next((col for col in possible_time_cols if col in df.columns), df.columns[0])
                     
                     df_display = df.sort_values(by=sort_col, ascending=False).reset_index(drop=True)
@@ -299,8 +314,14 @@ if symbol:
             if 'income_statement' in financial_data:
                 df_income = financial_data['income_statement'].copy()
                 
-                if df_income.index.names is not None and len(df_income.index.names) > 0:
-                    df_income = df_income.reset_index(drop=False) 
+                if df_income.index.names is not None and len(df_income.index.names) > 0 and df_income.index.names[0] is not None:
+                    try:
+                        df_income = df_income.reset_index(drop=False) 
+                    except ValueError:
+                        pass
+                
+                # Loại bỏ cột trùng tên để không dính lỗi ValueError khi sort_values
+                df_income = df_income.loc[:, ~df_income.columns.duplicated()]
 
                 numeric_cols = df_income.select_dtypes(include=np.number).columns.tolist()
                 
@@ -308,11 +329,11 @@ if symbol:
                 chart_cols = [col for col in default_metrics if col in numeric_cols]
                 chart_cols.extend([col for col in numeric_cols if col not in chart_cols])
                 
-                # Sửa lỗi: Tìm cột thời gian linh hoạt thay vì gán cứng
+                # Tìm cột thời gian linh hoạt
                 possible_chart_time_cols = ['period', 'Period', 'id', 'ReportDate', 'year', 'quarter']
                 time_col_for_chart = next((col for col in possible_chart_time_cols if col in df_income.columns), None)
                 
-                # Nếu không tìm thấy các tên phổ biến, lấy cột đầu tiên (không phải cột số) làm dự phòng
+                # Dự phòng nếu không tìm thấy tên thời gian phổ biến
                 if not time_col_for_chart and len(df_income.columns) > 0:
                     time_col_for_chart = df_income.columns[0]
 
@@ -326,6 +347,7 @@ if symbol:
                     df_chart = df_income[[time_col_for_chart, selected_metric]].dropna()
                     
                     if not df_chart.empty:
+                        # Thực hiện sắp xếp an toàn
                         df_chart = df_chart.sort_values(by=time_col_for_chart, ascending=True)
 
                         fig, ax = plt.subplots(figsize=(10, 5))
