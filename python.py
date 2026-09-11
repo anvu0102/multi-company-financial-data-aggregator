@@ -160,7 +160,7 @@ def get_ai_analysis(stats_df_income, stats_df_balance, symbol, period, api_key):
     """Gửi bảng thống kê đến Gemini để phân tích Báo cáo Tài chính."""
     try:
         client = genai.Client(api_key=api_key)
-        model_name = 'gemini-2.5-flash'
+        model_name = 'gemini-3.6-flash'
         
         income_markdown = stats_df_income.to_markdown(index=False)
         balance_markdown = stats_df_balance.to_markdown(index=False)
